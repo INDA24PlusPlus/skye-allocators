@@ -36,7 +36,7 @@ class sHeap {
 			block->size=size;
 			block->isFree=1;
 		}
-		void createPointer(){}
+		void createPointer(size_t size){}
 		
 
 	public:
@@ -45,7 +45,7 @@ class sHeap {
 			if (Memory==MAP_FAILED) handle_error("Heap creation failed");
 			Size=hSize;
 			BlocksizeMin=bSizeMin;
-			initBlock(
+			
 		}
 		
 		
