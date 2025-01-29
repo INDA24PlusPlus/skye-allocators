@@ -8,52 +8,157 @@
 class sHeap {
 	private:
 		void* Memory;
-		struct Heap {
-			void* Memory;
-			size_t Size; 
-		};
-		size_t Size;
-		size_t BlocksizeMin;
+		void* Cache;
+		size_t CacheSize;
+		size_t TotSize;
+		size_t FreeSize;
+		size_t Blockcount;
 		struct Block {
-			size_t size;
+			size_t data_size;
 			Block* prev;
 			Block* next;
-			int isFree;
+			int is_free;
 		};
-		struct Pointer {
-			Block* block;
-			size_t size;
-		};
-
-		Block* Blocks;
-		Pointer* Pointers;
 		void* bShift(size_t start){
 			return ((void *)(start+sizeof(Block)));
 		}
 		void initBlock(Block* block, size_t size){
 			block->prev=NULL;
 			block->next=NULL;
-			block->size=size;
-			block->isFree=1;
+			block->data_size=size;
+			block->is_free=1;
+			Blockcount++;
+			FreeSize-=sizeof(Block);
 		}
-		void createPointer(size_t size){}
-		
+		size_t try_merge_backwards(Block* block){
+			return block->is_free&&block->prev!=NULL&&block->prev->is_free;
+		}
+		size_t try_merge_forwards(Block* block){
+			return block->is_free&&block->next!=NULL&&block->next->is_free;
+		}
 
+		Block* mergeBlockForwards(Block* block){
+			if(try_merge_forwards(block)){
+				block->data_size+=block->next->data_size+sizeof(Block);
+				FreeSize+=sizeof(Block);
+				Blockcount--;
+				block->next=block->next->next;
+			}
+			return block;
+		}
+		Block* mergeBlockBackwards(Block* block){
+			if(try_merge_backwards(block)){
+				block=block->prev;
+				block->data_size+=block->next->data_size+sizeof(Block);
+				FreeSize+=sizeof(Block);
+				Blockcount--;
+				block->next=block->next->next;
+			}
+			return block;
+		}
+		void divideBlock(Block* block, size_t size){
+			Block* fBlock=(Block*)((size_t)block+sizeof(Block)+size);
+			initBlock(fBlock, block->data_size-size-sizeof(Block));
+			fBlock->prev=block;
+			fBlock->next=block->next;
+			block->data_size=size;
+			if(fBlock->next!=NULL) fBlock->next->prev=fBlock;
+			block->next=fBlock;
+		}
+
+		Block* mergeBlock(Block* block){
+			if(try_merge_forwards(block)){
+				block=mergeBlockForwards(block);
+				block=mergeBlock(block);
+			}
+			else if(try_merge_backwards(block)){
+				block=mergeBlockBackwards(block);
+				block=mergeBlock(block);
+			}
+			return block;
+		}
+		Block* allocatePtr(size_t size, Block* block){
+			if(block->is_free){
+				if(block->data_size-size>sizeof(Block)+8){
+					divideBlock(block, size);
+					block->is_free=0;
+					FreeSize-=block->data_size;
+					return block;
+				}
+			}
+			if(block->next!=NULL) return allocatePtr(size, block->next);
+			return NULL;
+		}
+		Block* blockFromPointer(void* ptr){
+			Block* block=(Block*)Memory;
+			size_t tPtr=(size_t)ptr;
+			while(block!=NULL){
+				if(((size_t)block+sizeof(Block)+block->data_size)>tPtr&&(size_t)block<tPtr){return block;}
+				block=block->next;
+			}
+			return NULL;
+		}
+		void fillZeros(void* ptr, size_t size){
+			while(size--){
+				((char*)ptr)[size]=0;
+			}
+		}
+		void memcpy(void* dest, void* src, size_t size){
+			while(size--){
+				((char*)dest)[size]=((char*)src)[size];
+			}
+		}		
 	public:
-		sHeap(size_t hSize, size_t bSizeMin) {
+		sHeap(size_t hSize, size_t cSize) {
 			Memory=mmap(NULL, hSize,PROT_READ|PROT_WRITE,MAP_ANON|MAP_PRIVATE,-1,0);
+			Cache=mmap(NULL, cSize, PROT_READ|PROT_WRITE,MAP_ANON|MAP_PRIVATE,-1,0);
 			if (Memory==MAP_FAILED) handle_error("Heap creation failed");
-			Size=hSize;
-			BlocksizeMin=bSizeMin;
+			CacheSize=cSize;
+			TotSize=hSize;
+			FreeSize=hSize;
+			Blockcount=0;
+			initBlock((Block*)Memory,TotSize-sizeof(Block));
+
+			
+		}
+		void* malloc(size_t size){return (void*)((size_t)allocatePtr(size, (Block*)Memory)+sizeof(Block));}
+		void* realloc(void* ptr, size_t size){
+			void* nptr=(*this).malloc(size);
+			if(nptr==NULL){handle_error("Couldn't resize pointer ");}
+			Block* cBlock=blockFromPointer(ptr);
+			memcpy(nptr,ptr,cBlock->data_size);
+			(*this).free(ptr);
+			return nptr;
+
+		}
+		void* test(){return (void*)((size_t)Memory+sizeof(Block));}
+		void free(void* ptr){
+			Block* block=blockFromPointer(ptr);
+			printf("%p:%p\n", block, ptr);
+			if(block->is_free){handle_error("segfault");}
+			FreeSize+=block->data_size;
+			block->is_free=1;
+			mergeBlock(block);
+			printf("%lu\n", Blockcount);
 			
 		}
 		
 		
 };
-void* sAlloc(size_t size, size_t alignment){return NULL;}
-void sFree(void* ptr){}
-void* sResize(void* ptr, size_t size){return NULL;}
 int main(){
 	printf("aaa\n");
+	sHeap Heap=sHeap(1024,128);
+	int* a=(int*)Heap.malloc(sizeof(int));
+	*a=1;
+	printf("%d|%p\n",*a,a);
+	int* b=(int*)Heap.malloc(sizeof(int));
+	*b=1;
+	printf("%d|%p\n",*b,b);
+	b=(int*)Heap.realloc(b, 2*sizeof(int));
+	printf("%d|%p\n",*b,b);
+
+	Heap.free(b);
+	Heap.free(a);
+	
 	return 1;
 }
