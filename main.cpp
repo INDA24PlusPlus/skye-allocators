@@ -4,6 +4,43 @@
 
 #define handle_error(msg) \
 	do { perror(msg); exit(EXIT_FAILURE); } while (0)
+class sArena {
+	private:
+		void* Memory;
+		size_t FreePtr;
+		size_t TotSize;
+		size_t FreeSize;
+		void memcpy(void* dest, void* src, size_t size){
+			while(size--){
+				((char*)dest)[size]=((char*)src)[size];
+			}
+		}		
+	public:
+		sArena(size_t hSize) {
+			Memory=mmap(NULL, hSize,PROT_READ|PROT_WRITE,MAP_ANON|MAP_PRIVATE,-1,0);
+			FreePtr=0;
+			if (Memory==MAP_FAILED) handle_error("Heap creation failed");
+			TotSize=hSize;
+			FreeSize=hSize;
+		}
+		void* malloc(size_t size){
+			if(size<=FreeSize){
+				void* rPtr=(void*)((size_t)Memory+FreePtr);
+				FreeSize-=size;
+				FreePtr+=size;
+				return rPtr;
+			}
+			handle_error("Out of memory");
+		}
+		void* realloc(void* ptr, size_t oldSize, size_t size){
+			void* nptr=(*this).malloc(size);
+			(*this).memcpy(nptr,ptr,oldSize);
+			return nptr;
+		}
+		void free_heap(){
+			munmap(Memory,TotSize);
+		}
+};
 
 class sHeap {
 	private:
@@ -19,9 +56,6 @@ class sHeap {
 			Block* next;
 			int is_free;
 		};
-		void* bShift(size_t start){
-			return ((void *)(start+sizeof(Block)));
-		}
 		void initBlock(Block* block, size_t size){
 			block->prev=NULL;
 			block->next=NULL;
@@ -98,11 +132,6 @@ class sHeap {
 			}
 			return NULL;
 		}
-		void fillZeros(void* ptr, size_t size){
-			while(size--){
-				((char*)ptr)[size]=0;
-			}
-		}
 		void memcpy(void* dest, void* src, size_t size){
 			while(size--){
 				((char*)dest)[size]=((char*)src)[size];
@@ -118,8 +147,6 @@ class sHeap {
 			FreeSize=hSize;
 			Blockcount=0;
 			initBlock((Block*)Memory,TotSize-sizeof(Block));
-
-			
 		}
 		void* malloc(size_t size){return (void*)((size_t)allocatePtr(size, (Block*)Memory)+sizeof(Block));}
 		void* realloc(void* ptr, size_t size){
@@ -129,9 +156,7 @@ class sHeap {
 			memcpy(nptr,ptr,cBlock->data_size);
 			(*this).free(ptr);
 			return nptr;
-
 		}
-		void* test(){return (void*)((size_t)Memory+sizeof(Block));}
 		void free(void* ptr){
 			Block* block=blockFromPointer(ptr);
 			printf("%p:%p\n", block, ptr);
@@ -140,13 +165,13 @@ class sHeap {
 			block->is_free=1;
 			mergeBlock(block);
 			printf("%lu\n", Blockcount);
-			
 		}
-		
-		
+		void free_heap(){
+			munmap(Memory,TotSize);
+			munmap(Cache,CacheSize);
+		}
 };
 int main(){
-	printf("aaa\n");
 	sHeap Heap=sHeap(1024,128);
 	int* a=(int*)Heap.malloc(sizeof(int));
 	*a=1;
@@ -159,6 +184,6 @@ int main(){
 
 	Heap.free(b);
 	Heap.free(a);
-	
+	Heap.free_heap();
 	return 1;
 }
